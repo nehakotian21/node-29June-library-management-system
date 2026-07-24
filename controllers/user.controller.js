@@ -3,6 +3,7 @@ import bcrypt from "bcrypt";
 import genrateOTP from "../service/otp.service";
 import sendEmail from "../service/email.service";
 import Otp from "../models/otp.model";
+import jwt from "jsonwebtoken"
 
 // Create User / Sign up
 // Get data from the user ✅
@@ -41,24 +42,22 @@ export const createUser = async (req, res) => {
     );
 
     // generate otp
-    const otp = genrateOTP()
+    const otp = genrateOTP();
 
     // send email
     await sendEmail({
       to: email,
       subject: "Email verification OTP",
-      text: `OTP for Library Managemant System is ${otp}`
-    })
-    console.log("Email sent successfully")
-
+      text: `OTP for Library Managemant System is ${otp}`,
+    });
+    console.log("Email sent successfully");
 
     // hash otp
-    const hashOTP = bcrypt.hashSync(String(otp),Number(process.env.OTP_SALT) )
+    const hashOTP = bcrypt.hashSync(String(otp), Number(process.env.OTP_SALT));
 
     // save in otp model
-    const creatingOTP = await Otp.create({email, otp: hashOTP})
-    console.log("OTP saved successfully")
-
+    const creatingOTP = await Otp.create({ email, otp: hashOTP });
+    console.log("OTP saved successfully");
 
     // save the data in user model
     const createUser = await User.create({
@@ -67,9 +66,9 @@ export const createUser = async (req, res) => {
       username,
       password: hashPassword,
       role,
-      email
-    })
-    console.log("User created successfully")
+      email,
+    });
+    console.log("User created successfully");
 
     return res.status(201).json({
       user: createUser,
@@ -85,7 +84,7 @@ export const createUser = async (req, res) => {
   }
 };
 
-// Verify email 
+// Verify email
 // Get data from the user - email , otp ✅
 // fetch otp data from otp collection ✅
 // OUTPUT 1: data not found --> err message ✅
@@ -93,66 +92,108 @@ export const createUser = async (req, res) => {
 // Compare
 // OUTPUT 1: OTP Matched --> success --> User status to 1 in User collection and delete OTP from OTP collection
 // OUTPUT 2: OTP not Matched --> OTP verification failed message ✅
-export const verifyEmail = async(req, res) =>{
-  try{
-    const {email, otp} = req.body;
-    console.log("--------------------------------------------")
-    console.log("USER INPUT")
-    console.log(email, otp)
+export const verifyEmail = async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+    console.log("--------------------------------------------");
+    console.log("USER INPUT");
+    console.log(email, otp);
 
-    const existingOTP = await Otp.findOne({email})
-    if(!existingOTP){
+    const existingOTP = await Otp.findOne({ email });
+    if (!existingOTP) {
       return res.status(404).json({
         message: "Generate new OTP",
-        success: false
-      })
+        success: false,
+      });
     }
 
-    console.log("--------------------------------------------")
-    console.log("DB FETCH")
-    console.log(existingOTP)
+    console.log("--------------------------------------------");
+    console.log("DB FETCH");
+    console.log(existingOTP);
 
+    const comparing = bcrypt.compareSync(otp, existingOTP.otp);
+    console.log(comparing);
 
-    const comparing = bcrypt.compareSync(otp, existingOTP.otp)
-    console.log(comparing)
-
-    if(!comparing){
+    if (!comparing) {
       return res.status(400).json({
         message: "OTP does not match.",
-        success: false
-      })
+        success: false,
+      });
     }
 
-
-    const updateUser = await User.updateOne({email}, {status: 1})
-    console.log(updateUser)
+    const updateUser = await User.updateOne({ email }, { status: 1 });
+    console.log(updateUser);
 
     // Deleting OTP data from OTP collection
 
-
     return res.status(200).json({
       message: "OTP verification complete.",
-      success: true
-    })
-
-
-
-  }catch(err){
+      success: true,
+    });
+  } catch (err) {
     console.log(err);
     return res.status(500).json({
       message: "Something went wrong while trying to verify Email.",
       success: false,
     });
   }
-}
-
-
+};
 
 // Fetch single user ✅ no password
 // Fetch all user ✅ no password
 // Update user (excluding password, email, username) ✅
-// Delete user 
+// Delete user
 // Login ✅
 // Forget Password ✅
 // Verify OTP ✅
-// Change Password 
+// Change Password
+
+export const login = async (req, res) => {
+  try {
+    // Fetching user data
+    const { email, password } = req.body;
+
+    // Fetching user details
+    const existingUser = await User.findOne({ email });
+
+    if (!existingUser) {
+      return res.status(404).json({
+        message: "User does not exits.",
+        success: false,
+      });
+    }
+
+    // comparing
+    const compare = bcrypt.compareSync(password, existingUser.password);
+    if (!compare) {
+      return res.status(401).json({
+        message: "Invalid credentials",
+        success: false,
+      });
+    }
+
+    // generate token
+    const token = jwt.sign(
+      {id: existingUser._id, role: existingUser.role}, 
+      process.env.JWT_KEY,
+      {expiresIn: '1h'}
+    )
+
+    console.log(token)
+
+    const user = await User.findOne().select("-password -__v -status -role");
+
+    return res.status(200).json({
+      user,
+      token,
+      message: "Logged in successfully.",
+      success: true,
+    });
+  } catch (err) {
+    console.log(err);
+    return res.status(500).json({
+      message: "Something went wrong while trying to login.",
+      success: false,
+    });
+  }
+};
